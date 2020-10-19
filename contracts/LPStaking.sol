@@ -43,6 +43,10 @@ contract LPStaking is Ownable {
 
     // The migrator contract. It has a lot of power. Can only be set through governance (owner).
     IMigrator public migrator;
+//    // The block number when ETF mining starts.
+//    uint256 immutable public startBlock;
+//    // The block number when ETF mining ends.
+//    uint256 immutable public endBlock;
     // ETF tokens created per block.
     uint256 public etfPerBlock = 755 * 10 ** 16;
 
