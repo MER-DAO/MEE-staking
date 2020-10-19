@@ -43,10 +43,6 @@ contract LPStaking is Ownable {
 
     // The migrator contract. It has a lot of power. Can only be set through governance (owner).
     IMigrator public migrator;
-    // The block number when ETF mining starts.
-    uint256 immutable public startBlock;
-    // The block number when ETF mining ends.
-    uint256 immutable public endBlock;
     // ETF tokens created per block.
     uint256 public etfPerBlock = 755 * 10 ** 16;
 
@@ -120,6 +116,9 @@ contract LPStaking is Ownable {
         IERC20 newLpToken = migrator.migrate(lpToken);
         require(bal == newLpToken.balanceOf(address(this)), "migrate: bad");
         pool.lpToken = newLpToken;
+    }
+
+    function setMigrated() onlyOwner public{
         migrated = true;
     }
 
@@ -213,7 +212,7 @@ contract LPStaking is Ownable {
         emit Deposit(msg.sender, _pid, _amount);
     }
 
-    // Withdraw LP tokens.
+    // Withdraw LP tokens from LPStaking.
     function withdraw(uint256 _pid, uint256 _amount) public {
         PoolInfo storage pool = poolInfo[_pid];
         UserInfo storage user = userInfo[_pid][msg.sender];
