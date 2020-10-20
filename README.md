@@ -1,2 +1,2 @@
-# ETF-staking
-Core contracts for the Staking
+# MEE-staking
+Core contracts for the MEE Staking

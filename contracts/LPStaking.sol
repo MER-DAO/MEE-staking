@@ -17,17 +17,17 @@ contract LPStaking is Ownable {
     struct UserInfo {
         uint256 amount;         // How many LP tokens the user has provided.
         uint256 rewardDebt;     // Reward debt. See explanation below.
-        uint256 lockRewards;    // 90% lock rewards when not migrated
+        uint256 lockRewards;    // lock rewards when not migrated
         uint256 stakeBlocks;    // number of blocks containing staking;
         uint256 lastBlock;      // the last block.number when update shares;
         uint256 accStakeShares; // accumulate stakes: ∑(amount * stakeBlocks);
-        // Basically, any point in time, the amount of ETF
+        // Basically, any point in time, the amount of Token
         // entitled to a user but is pending to be distributed is:
         //
-        //   pending reward = (user.amount * pool.accEtfPerShare) - user.rewardDebt
+        //   pending reward = (user.amount * pool.accTokenPerShare) - user.rewardDebt
         //
         // Whenever a user deposits or withdraws LP tokens to a pool. Here's what happens:
-        //   1. The pool's `accEtfPerShare` (and `lastRewardBlock`) gets updated.
+        //   1. The pool's `accTokenPerShare` (and `lastRewardBlock`) gets updated.
         //   2. User receives the pending reward sent to his/her address.
         //   3. User's `amount` gets updated.
         //   4. User's `rewardDebt` gets updated.
@@ -36,19 +36,19 @@ contract LPStaking is Ownable {
     // Info of each pool.
     struct PoolInfo {
         IERC20 lpToken;           // Address of LP token contract.
-        uint256 allocPoint;       // How many allocation points assigned to this pool. ETF to distribute per block.
-        uint256 lastRewardBlock;  // Last block number that ETF distribution occurs.
-        uint256 accEtfPerShare; // Accumulated ETF per share, times 1e12. See below.
+        uint256 allocPoint;       // How many allocation points assigned to this pool. Token to distribute per block.
+        uint256 lastRewardBlock;  // Last block number that Token distribution occurs.
+        uint256 accTokenPerShare; // Accumulated Token per share, times 1e12. See below.
     }
 
     // The migrator contract. It has a lot of power. Can only be set through governance (owner).
     IMigrator public migrator;
-//    // The block number when ETF mining starts.
-//    uint256 immutable public startBlock;
-//    // The block number when ETF mining ends.
-//    uint256 immutable public endBlock;
-    // ETF tokens created per block.
-    uint256 public etfPerBlock = 755 * 10 ** 16;
+    // The block number when Token mining starts.
+    uint256 immutable public startBlock;
+    // The block number when Token mining ends.
+    uint256 immutable public endBlock;
+    // Reward token created per block.
+    uint256 public tokenPerBlock = 755 * 10 ** 16;
 
     // Info of each pool.
     PoolInfo[] public poolInfo;
@@ -66,12 +66,12 @@ contract LPStaking is Ownable {
 
     constructor(
         IAward _award,
-        uint256 _etfPerBlock,
+        uint256 _tokenPerBlock,
         uint256 _startBlock,
         uint256 _endBlock
     ) public {
         award = _award;
-        etfPerBlock = _etfPerBlock;
+        tokenPerBlock = _tokenPerBlock;
         startBlock = _startBlock;
         endBlock = _endBlock;
     }
@@ -92,11 +92,11 @@ contract LPStaking is Ownable {
             lpToken : _lpToken,
             allocPoint : _allocPoint,
             lastRewardBlock : lastRewardBlock,
-            accEtfPerShare : 0
+            accTokenPerShare : 0
             }));
     }
 
-    // Update the given pool's ETF allocation point. Can only be called by the owner.
+    // Update the given pool's Token allocation point. Can only be called by the owner.
     function set(uint256 _pid, uint256 _allocPoint, bool _withUpdate) public onlyOwner {
         if (_withUpdate) {
             batchUpdatePools();
@@ -137,18 +137,18 @@ contract LPStaking is Ownable {
         }
     }
 
-    // View function to see pending ETF on frontend.
-    function pendingETF(uint256 _pid, address _user) external view returns (uint256) {
+    // View function to see pending Token on frontend.
+    function pendingShares(uint256 _pid, address _user) external view returns (uint256) {
         PoolInfo storage pool = poolInfo[_pid];
         UserInfo storage user = userInfo[_pid][_user];
-        uint256 accEtfPerShare = pool.accEtfPerShare;
+        uint256 accTokenPerShare = pool.accTokenPerShare;
         uint256 lpSupply = pool.lpToken.balanceOf(address(this));
         if (block.number > pool.lastRewardBlock && lpSupply != 0) {
             uint256 multiplier = getMultiplier(pool.lastRewardBlock, block.number);
-            uint256 etfReward = multiplier.mul(etfPerBlock).mul(pool.allocPoint).div(totalAllocPoint);
-            accEtfPerShare = accEtfPerShare.add(etfReward.mul(1e12).div(lpSupply));
+            uint256 rewards = multiplier.mul(tokenPerBlock).mul(pool.allocPoint).div(totalAllocPoint);
+            accTokenPerShare = accTokenPerShare.add(rewards.mul(1e12).div(lpSupply));
         }
-        return user.amount.mul(accEtfPerShare).div(1e12).sub(user.rewardDebt);
+        return user.amount.mul(accTokenPerShare).div(1e12).sub(user.rewardDebt);
     }
 
     // Update reward vairables for all pools. Be careful of gas spending!
@@ -171,8 +171,8 @@ contract LPStaking is Ownable {
             return;
         }
         uint256 multiplier = getMultiplier(pool.lastRewardBlock, block.number);
-        uint256 etfReward = multiplier.mul(etfPerBlock).mul(pool.allocPoint).div(totalAllocPoint);
-        pool.accEtfPerShare = pool.accEtfPerShare.add(etfReward.mul(1e12).div(lpSupply));
+        uint256 rewards = multiplier.mul(tokenPerBlock).mul(pool.allocPoint).div(totalAllocPoint);
+        pool.accTokenPerShare = pool.accTokenPerShare.add(rewards.mul(1e12).div(lpSupply));
         pool.lastRewardBlock = block.number;
     }
 
@@ -182,7 +182,7 @@ contract LPStaking is Ownable {
         updatePool(_pid);
         uint256 pending = 0;
         if (user.amount > 0) {
-            pending = user.amount.mul(pool.accEtfPerShare).div(1e12).sub(user.rewardDebt);
+            pending = user.amount.mul(pool.accTokenPerShare).div(1e12).sub(user.rewardDebt);
 
             uint256 num = block.number - user.lastBlock;
             user.stakeBlocks = user.stakeBlocks.add(num);
@@ -205,14 +205,14 @@ contract LPStaking is Ownable {
         }
     }
 
-    // Deposit LP tokens to Staking for ETF allocation.
+    // Deposit LP tokens to Staking for shares allocation.
     function deposit(uint256 _pid, uint256 _amount) public {
         PoolInfo storage pool = poolInfo[_pid];
         UserInfo storage user = userInfo[_pid][msg.sender];
         shareAwards(_pid);
         pool.lpToken.safeTransferFrom(msg.sender, address(this), _amount);
         user.amount = user.amount.add(_amount);
-        user.rewardDebt = user.amount.mul(pool.accEtfPerShare).div(1e12);
+        user.rewardDebt = user.amount.mul(pool.accTokenPerShare).div(1e12);
         emit Deposit(msg.sender, _pid, _amount);
     }
 
@@ -223,7 +223,7 @@ contract LPStaking is Ownable {
         require(user.amount >= _amount, "withdraw: not good");
         shareAwards(_pid);
         user.amount = user.amount.sub(_amount);
-        user.rewardDebt = user.amount.mul(pool.accEtfPerShare).div(1e12);
+        user.rewardDebt = user.amount.mul(pool.accTokenPerShare).div(1e12);
         user.lastBlock = block.number;
         pool.lpToken.safeTransfer(msg.sender, _amount);
         emit Withdraw(msg.sender, _pid, _amount);
