@@ -6,6 +6,7 @@ import "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/EnumerableSet.sol";
 import "@openzeppelin/contracts/math/SafeMath.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
+
 import "./interfaces/IMigrator.sol";
 import "./interfaces/IAward.sol";
 
@@ -50,6 +51,7 @@ contract LPStaking is Ownable {
     // Reward token created per block.
     uint256 public tokenPerBlock = 755 * 10 ** 16;
 
+    mapping(address => bool) public poolIn;
     // Info of each pool.
     PoolInfo[] public poolInfo;
     // Info of each user that stakes LP tokens.
@@ -60,9 +62,16 @@ contract LPStaking is Ownable {
     bool public migrated;
     IAward award;
 
+    event Add(uint256 allocPoint, address lpToken, bool withUpdate);
     event Deposit(address indexed user, uint256 indexed pid, uint256 amount);
     event Withdraw(address indexed user, uint256 indexed pid, uint256 amount);
     event EmergencyWithdraw(address indexed user, uint256 indexed pid, uint256 amount);
+    event SetMigrator(address indexed newMigrator);
+    event Migrate(uint256 pid, address indexed lpToken, address indexed newToken);
+    event Initialization(address award, uint256 tokenPerBlock, uint256 startBlock, uint256 endBlock);
+    event Add(uint256 allocPoint, IERC20 lpToken, bool withUpdate);
+    event Set(uint256 pid, uint256 allocPoint, bool withUpdate);
+    event UpdatePool(uint256 pid, uint256 accTokenPerShare, uint256 lastRewardBlock);
 
     constructor(
         IAward _award,
@@ -70,10 +79,12 @@ contract LPStaking is Ownable {
         uint256 _startBlock,
         uint256 _endBlock
     ) public {
+        require(_startBlock < _endBlock, "LPStaking: invalid block range");
         award = _award;
         tokenPerBlock = _tokenPerBlock;
         startBlock = _startBlock;
         endBlock = _endBlock;
+        emit Initialization(address(_award), _tokenPerBlock, _startBlock, _endBlock);
     }
 
     function poolLength() external view returns (uint256) {
@@ -82,36 +93,43 @@ contract LPStaking is Ownable {
 
     // Add a new lp to the pool. Can only be called by the owner.
     // DO NOT add the same LP token more than once. Rewards will be messed up if you do.
-    function add(uint256 _allocPoint, IERC20 _lpToken, bool _withUpdate) public onlyOwner {
+    function add(uint256 _allocPoint, address _lpToken, bool _withUpdate) public onlyOwner {
+        require(!poolIn[_lpToken], "LPStaking: duplicate lpToken");
         if (_withUpdate) {
             batchUpdatePools();
         }
         uint256 lastRewardBlock = block.number > startBlock ? block.number : startBlock;
         totalAllocPoint = totalAllocPoint.add(_allocPoint);
         poolInfo.push(PoolInfo({
-            lpToken : _lpToken,
+            lpToken : IERC20(_lpToken),
             allocPoint : _allocPoint,
             lastRewardBlock : lastRewardBlock,
             accTokenPerShare : 0
             }));
+        poolIn[_lpToken] = true;
+        emit Add(_allocPoint, _lpToken, _withUpdate);
     }
 
     // Update the given pool's Token allocation point. Can only be called by the owner.
     function set(uint256 _pid, uint256 _allocPoint, bool _withUpdate) public onlyOwner {
+        require(_pid < poolInfo.length, "LPStaking: pool index overflow");
         if (_withUpdate) {
             batchUpdatePools();
         }
         totalAllocPoint = totalAllocPoint.sub(poolInfo[_pid].allocPoint).add(_allocPoint);
         poolInfo[_pid].allocPoint = _allocPoint;
+        emit Set(_pid, _allocPoint, _withUpdate);
     }
 
     // Set the migrator contract. Can only be called by the owner.
     function setMigrator(IMigrator _migrator) public onlyOwner {
         migrator = _migrator;
+        emit SetMigrator(address(_migrator));
     }
 
     // Migrate lp token to another lp contract. Can be called by anyone. We trust that migrator contract is good.
     function migrate(uint256 _pid) public {
+        require(_pid < poolInfo.length, "LPStaking: pool index overflow");
         require(address(migrator) != address(0), "migrate: no migrator");
         PoolInfo storage pool = poolInfo[_pid];
         IERC20 lpToken = pool.lpToken;
@@ -120,9 +138,10 @@ contract LPStaking is Ownable {
         IERC20 newLpToken = migrator.migrate(lpToken);
         require(bal == newLpToken.balanceOf(address(this)), "migrate: bad");
         pool.lpToken = newLpToken;
+        emit Migrate(_pid, address(lpToken), address(newLpToken));
     }
 
-    function setMigrated() onlyOwner public{
+    function setMigrated() onlyOwner public {
         migrated = true;
     }
 
@@ -162,18 +181,18 @@ contract LPStaking is Ownable {
     // Update reward variables of the given pool to be up-to-date.
     function updatePool(uint256 _pid) public {
         PoolInfo storage pool = poolInfo[_pid];
-        if (block.number <= pool.lastRewardBlock) {
-            return;
+        if (block.number > pool.lastRewardBlock) {
+            uint256 lpSupply = pool.lpToken.balanceOf(address(this));
+            if (lpSupply == 0) {
+                pool.lastRewardBlock = block.number;
+            } else {
+                uint256 multiplier = getMultiplier(pool.lastRewardBlock, block.number);
+                uint256 rewards = multiplier.mul(tokenPerBlock).mul(pool.allocPoint).div(totalAllocPoint);
+                pool.accTokenPerShare = pool.accTokenPerShare.add(rewards.mul(1e12).div(lpSupply));
+                pool.lastRewardBlock = block.number;
+            }
         }
-        uint256 lpSupply = pool.lpToken.balanceOf(address(this));
-        if (lpSupply == 0) {
-            pool.lastRewardBlock = block.number;
-            return;
-        }
-        uint256 multiplier = getMultiplier(pool.lastRewardBlock, block.number);
-        uint256 rewards = multiplier.mul(tokenPerBlock).mul(pool.allocPoint).div(totalAllocPoint);
-        pool.accTokenPerShare = pool.accTokenPerShare.add(rewards.mul(1e12).div(lpSupply));
-        pool.lastRewardBlock = block.number;
+        emit UpdatePool(_pid, pool.accTokenPerShare, pool.lastRewardBlock);
     }
 
     function shareAwards(uint256 _pid) private {
@@ -203,6 +222,7 @@ contract LPStaking is Ownable {
         } else {
             user.lockRewards = user.lockRewards.add(pending);
         }
+        user.lastBlock = block.number;
     }
 
     // Deposit LP tokens to Staking for shares allocation.
@@ -224,7 +244,6 @@ contract LPStaking is Ownable {
         shareAwards(_pid);
         user.amount = user.amount.sub(_amount);
         user.rewardDebt = user.amount.mul(pool.accTokenPerShare).div(1e12);
-        user.lastBlock = block.number;
         pool.lpToken.safeTransfer(msg.sender, _amount);
         emit Withdraw(msg.sender, _pid, _amount);
     }
