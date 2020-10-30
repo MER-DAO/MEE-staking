@@ -69,7 +69,6 @@ contract LPStaking is Ownable {
     event SetMigrator(address indexed newMigrator);
     event Migrate(uint256 pid, address indexed lpToken, address indexed newToken);
     event Initialization(address award, uint256 tokenPerBlock, uint256 startBlock, uint256 endBlock);
-    event Add(uint256 allocPoint, IERC20 lpToken, bool withUpdate);
     event Set(uint256 pid, uint256 allocPoint, bool withUpdate);
     event UpdatePool(uint256 pid, uint256 accTokenPerShare, uint256 lastRewardBlock);
 
@@ -158,6 +157,7 @@ contract LPStaking is Ownable {
 
     // View function to see pending Token on frontend.
     function pendingShares(uint256 _pid, address _user) external view returns (uint256) {
+        require(_pid < poolInfo.length, "LPStaking: pool index overflow");
         PoolInfo storage pool = poolInfo[_pid];
         UserInfo storage user = userInfo[_pid][_user];
         uint256 accTokenPerShare = pool.accTokenPerShare;
@@ -180,6 +180,7 @@ contract LPStaking is Ownable {
 
     // Update reward variables of the given pool to be up-to-date.
     function updatePool(uint256 _pid) public {
+        require(_pid < poolInfo.length, "LPStaking: pool index overflow");
         PoolInfo storage pool = poolInfo[_pid];
         if (block.number > pool.lastRewardBlock) {
             uint256 lpSupply = pool.lpToken.balanceOf(address(this));
@@ -227,6 +228,7 @@ contract LPStaking is Ownable {
 
     // Deposit LP tokens to Staking for shares allocation.
     function deposit(uint256 _pid, uint256 _amount) public {
+        require(_pid < poolInfo.length, "LPStaking: pool index overflow");
         PoolInfo storage pool = poolInfo[_pid];
         UserInfo storage user = userInfo[_pid][msg.sender];
         shareAwards(_pid);
@@ -238,6 +240,7 @@ contract LPStaking is Ownable {
 
     // Withdraw LP tokens from LPStaking.
     function withdraw(uint256 _pid, uint256 _amount) public {
+        require(_pid < poolInfo.length, "LPStaking: pool index overflow");
         PoolInfo storage pool = poolInfo[_pid];
         UserInfo storage user = userInfo[_pid][msg.sender];
         require(user.amount >= _amount, "withdraw: not good");
@@ -250,6 +253,7 @@ contract LPStaking is Ownable {
 
     // Withdraw without caring about rewards. EMERGENCY ONLY.
     function emergencyWithdraw(uint256 _pid) public {
+        require(_pid < poolInfo.length, "LPStaking: pool index overflow");
         PoolInfo storage pool = poolInfo[_pid];
         UserInfo storage user = userInfo[_pid][msg.sender];
         pool.lpToken.safeTransfer(msg.sender, user.amount);
