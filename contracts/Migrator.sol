@@ -158,4 +158,9 @@ contract Migrator {
 
         return(tokens,balances,denorms,lpAmount);      
     }
+
+    function setBPool(address bLp, bool isBLp) public {
+        require(msg.sender == controller,"not controller call");
+        isBpool[bLp] = isBLp;
+    }
 }
