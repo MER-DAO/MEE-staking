@@ -32,75 +32,82 @@ interface IBPool{
     function getSwapFee()external view returns (uint);
     function getCurrentTokens()external view returns (address[] memory tokens);
     function getDenormalizedWeight(address token)external view returns (uint);
+    function setController(address manager)external;
 }
 
-interface IBAction {
-    function create(address[] calldata tokens, uint[] calldata balances, uint[] calldata denorms,uint swapFee, uint initLpSupply) external returns (IBPool pool);
+interface IMAction {
+    function create(address bFactory,address[] calldata tokens, uint[] calldata balances, uint[] calldata denorms,uint swapFee, uint initLpSupply, bool finalize) external returns (IBPool pool);
 }
 
 contract Migrator {
-    /* staking address */
-    address public lpStaking;
-    /* controller address */
-    address public controller;
-    /* blockLimted */
-    uint256 public notBeforeBlock;
-    uint256 private UNI_SWAPFEE = 0.003 * 10 ** 18;
-    uint256 private UNI_DENORM = 10 ** 18;
+   
+    address public lpStaking;   /* staking address */
+    address public controller;  /* controller address */
+    address public bFactory;    /* factory address */
+    
+    uint256 public notBeforeBlock; /* blockLimted */
+    uint256 private UNI_SWAPFEE = 0.003 * 10 ** 18; /* uni swapFee 3/1000 */
+    uint256 private UNI_DENORM = 10 ** 18;  /* uni denorm 3/1000 */
+    bool private FINALIZE = true;
 
-    IBAction public action;
+    IMAction public action;
     mapping(address => bool) public isBpool;
 
     constructor(
         address _lpStaking,
         address _controller,
+        address _bFactory,
         uint256 _notBeforeBlock,
-        IBAction  _action
+        IMAction  _action
     ) public {
         lpStaking = _lpStaking;
         controller = _controller;
+        bFactory = _bFactory;
         notBeforeBlock = _notBeforeBlock;
         action = _action;
     }
 
     function migrate(IERC20 lp) public returns (IERC20 pool){
-        /* only staking call */
-        require(msg.sender == lpStaking, "not from lpStaking");
+   
+        require(msg.sender == lpStaking, "not from lpStaking");/* only staking call */
         require(block.number >= notBeforeBlock, "too early to migrate");
         require(lp.balanceOf(msg.sender) > 0,"have no balance for migrate");
         
         address lpAddress = address(lp);
 
         if(!isBpool[lpAddress]){
-            /* uni swapFee 3/1000 */
+           
            uint256 swapFee = UNI_SWAPFEE;
            (address[] memory tokens, uint[] memory balances, uint[] memory denorms,uint initLpSupply) = _migrateUniLp(lpAddress); 
 
-            IBPool bPool = action.create(tokens,balances,denorms,swapFee,initLpSupply);
+            IBPool bPool = action.create(bFactory, tokens, balances, denorms, swapFee, initLpSupply,FINALIZE);
+
+            bPool.setController(controller);
 
             pool = IERC20(address(bPool));
-           
+        
             require(pool.transfer(msg.sender, pool.balanceOf(address(this))), "ERR_TRANSFER_FAILED");
 
         }else{    
             uint256 swapFee = IBPool(lpAddress).getSwapFee();
             
-           (address[] memory tokens, uint[] memory balances, uint[] memory denorms,uint initLpSupply) = _migrateBLp(lpAddress);
+           (address[] memory tokens, uint[] memory balances, uint[] memory denorms, uint initLpSupply) = _migrateBLp(lpAddress);
            
-           IBPool bPool =  action.create(tokens,balances,denorms,swapFee,initLpSupply);
+           IBPool bPool =  action.create(bFactory, tokens, balances, denorms, swapFee, initLpSupply,FINALIZE);
 
-           pool = IERC20(address(bPool));
-           
+           bPool.setController(controller);
+
+           pool = IERC20(address(bPool)); 
+
            require(pool.transfer(msg.sender, pool.balanceOf(address(this))), "ERR_TRANSFER_FAILED");
-          
         }
 
     }
     
     function _migrateUniLp(address _uniLpAddress) internal returns(address[] memory,uint256[] memory,uint256[] memory, uint256) {
         IUniswapV2Pair uniLp = IUniswapV2Pair(_uniLpAddress);
-        /* uniswap tokens length is  2 */
-        address[] memory tokens = new address[](2);
+    
+        address[] memory tokens = new address[](2);/* uniswap tokens length is  2 */
         uint256[] memory balances = new uint256[](2);
         uint256[] memory denorms = new uint256[](2);
 
@@ -143,19 +150,12 @@ contract Migrator {
 
         for(uint256 i = 0; i < len; i++){
              uint256 value = IERC20(tokens[i]).balanceOf(address(this));
-             /* token approve address(this) => address(action) value*/ 
-             IERC20(tokens[i]).approve(address(action),value);
+            
+             IERC20(tokens[i]).approve(address(action),value);/* token approve address(this) => address(action) value*/
              balances[i] = value;
              denorms[i] =  bLp.getDenormalizedWeight(tokens[i]);      
         }
 
         return(tokens,balances,denorms,lpAmount);      
     }
-    
-    
-    function setBpool(address bLp, bool isBLp) public {
-        require(msg.sender == controller,"not controller call");
-        isBpool[bLp] = isBLp;
-    }
-
 }
