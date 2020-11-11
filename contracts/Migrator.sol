@@ -36,14 +36,14 @@ interface IBPool{
 }
 
 interface IMAction {
-    function create(address bFactory,address[] calldata tokens, uint[] calldata balances, uint[] calldata denorms,uint swapFee, uint initLpSupply, bool finalize) external returns (IBPool pool);
+    function create(address MFactory, address[] calldata tokens, uint[] calldata balances, uint[] calldata denorms,uint swapFee, uint initLpSupply, bool finalize) external returns (IBPool pool);
 }
 
 contract Migrator {
    
     address public lpStaking;   /* staking address */
     address public controller;  /* controller address */
-    address public bFactory;    /* factory address */
+    address public MFactory;    /* factory address */
     
     uint256 public notBeforeBlock; /* blockLimted */
     uint256 private UNI_SWAPFEE = 0.003 * 10 ** 18; /* uni swapFee 3/1000 */
@@ -56,13 +56,13 @@ contract Migrator {
     constructor(
         address _lpStaking,
         address _controller,
-        address _bFactory,
-        uint256 _notBeforeBlock,
-        IMAction  _action
+        address _MFactory,
+        IMAction  _action,
+        uint256 _notBeforeBlock
     ) public {
         lpStaking = _lpStaking;
         controller = _controller;
-        bFactory = _bFactory;
+        MFactory = _MFactory;
         notBeforeBlock = _notBeforeBlock;
         action = _action;
     }
@@ -80,7 +80,7 @@ contract Migrator {
            uint256 swapFee = UNI_SWAPFEE;
            (address[] memory tokens, uint[] memory balances, uint[] memory denorms,uint initLpSupply) = _migrateUniLp(lpAddress); 
 
-            IBPool bPool = action.create(bFactory, tokens, balances, denorms, swapFee, initLpSupply,FINALIZE);
+            IBPool bPool = action.create(MFactory, tokens, balances, denorms, swapFee, initLpSupply,FINALIZE);
 
             bPool.setController(controller);
 
@@ -93,7 +93,7 @@ contract Migrator {
             
            (address[] memory tokens, uint[] memory balances, uint[] memory denorms, uint initLpSupply) = _migrateBLp(lpAddress);
            
-           IBPool bPool =  action.create(bFactory, tokens, balances, denorms, swapFee, initLpSupply,FINALIZE);
+           IBPool bPool =  action.create(MFactory, tokens, balances, denorms, swapFee, initLpSupply,FINALIZE);
 
            bPool.setController(controller);
 
