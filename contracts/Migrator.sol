@@ -47,11 +47,11 @@ contract Migrator {
     
     uint256 public notBeforeBlock; /* blockLimted */
     uint256 private UNI_SWAPFEE = 0.003 * 10 ** 18; /* uni swapFee 3/1000 */
-    uint256 private UNI_DENORM = 10 ** 18;  /* uni denorm 3/1000 */
+    uint256 private UNI_DENORM = 10 ** 18;  /* uni denorm 10 ** 18 */
     bool private FINALIZE = true;
 
     IMAction public action;
-    mapping(address => bool) public isBpool;
+    mapping(address => bool) public isUniPool;
 
     constructor(
         address _lpStaking,
@@ -75,7 +75,7 @@ contract Migrator {
         
         address lpAddress = address(lp);
 
-        if(!isBpool[lpAddress]){
+        if(isUniPool[lpAddress]){
            
            uint256 swapFee = UNI_SWAPFEE;
            (address[] memory tokens, uint[] memory balances, uint[] memory denorms,uint initLpSupply) = _migrateUniLp(lpAddress); 
@@ -86,7 +86,7 @@ contract Migrator {
 
             pool = IERC20(address(bPool));
         
-            require(pool.transfer(msg.sender, pool.balanceOf(address(this))), "ERR_TRANSFER_FAILED");
+            _safeTransfer(address(pool),msg.sender,pool.balanceOf(address(this)));
 
         }else{    
             uint256 swapFee = IBPool(lpAddress).getSwapFee();
@@ -99,7 +99,7 @@ contract Migrator {
 
            pool = IERC20(address(bPool)); 
 
-           require(pool.transfer(msg.sender, pool.balanceOf(address(this))), "ERR_TRANSFER_FAILED");
+           _safeTransfer(address(pool),msg.sender,pool.balanceOf(address(this)));
         }
 
     }
@@ -115,12 +115,12 @@ contract Migrator {
         tokens[1] = uniLp.token1();
 
         uint256 lpAmount = uniLp.balanceOf(msg.sender);
-        uniLp.transferFrom(msg.sender, address(uniLp), lpAmount);
+        _safeTransferFrom(address(uniLp),msg.sender,address(uniLp),lpAmount);
         uniLp.burn(address(this));
 
         for(uint256 i = 0; i < tokens.length; i++){
              uint256 value = IERC20(tokens[i]).balanceOf(address(this)); 
-             IERC20(tokens[i]).approve(address(action),value);
+             _safeApprove(tokens[i],address(action),value);
              balances[i] = value;
              denorms[i] = UNI_DENORM;      
         }
@@ -144,14 +144,14 @@ contract Migrator {
 
         uint256 lpAmount = bLp.balanceOf(msg.sender);
 
-        bLp.transferFrom(msg.sender,address(this),lpAmount);
+        _safeTransferFrom(address(bLp),msg.sender,address(this),lpAmount);
         
         bLp.exitPool(lpAmount,minAmountOut);
 
         for(uint256 i = 0; i < len; i++){
              uint256 value = IERC20(tokens[i]).balanceOf(address(this));
             
-             IERC20(tokens[i]).approve(address(action),value);/* token approve address(this) => address(action) value*/
+             _safeApprove(tokens[i],address(action),value);
              balances[i] = value;
              denorms[i] =  bLp.getDenormalizedWeight(tokens[i]);      
         }
@@ -159,8 +159,34 @@ contract Migrator {
         return(tokens,balances,denorms,lpAmount);      
     }
 
-    function setBPool(address bLp, bool isBLp) public {
+    function setUniPool(address lp, bool isUniLp) public {
         require(msg.sender == controller,"not controller call");
-        isBpool[bLp] = isBLp;
+        isUniPool[lp] = isUniLp;
+    }
+
+    function setMFactory(address _factory) public {
+        require(msg.sender == controller,"not controller call"); 
+        MFactory = _factory;
+    }
+
+    function setMAction(address _action) public {
+        require(msg.sender == controller,"not controller call");
+        action = IMAction(_action);
+    }
+    
+    function _safeApprove(address _token, address _to, uint _value) internal {
+        (bool success, bytes memory data) = _token.call(abi.encodeWithSelector(0x095ea7b3, _to, _value));
+        require(success && (data.length == 0 || abi.decode(data, (bool))), 'TransferHelper: APPROVE_FAILED');
+    }
+
+    function _safeTransfer(address _token, address _to, uint _value) internal {
+        (bool success, bytes memory data) = _token.call(abi.encodeWithSelector(0xa9059cbb, _to, _value));
+        require(success && (data.length == 0 || abi.decode(data, (bool))), 'TransferHelper: TRANSFER_FAILED');
+    }
+
+    function _safeTransferFrom(address _token, address _from, address _to, uint _value) internal {
+        (bool success, bytes memory data) = _token.call(abi.encodeWithSelector(0x23b872dd, _from, _to, _value));
+        require(success && (data.length == 0 || abi.decode(data, (bool))), 'TransferHelper: TRANSFER_FROM_FAILED');
     }
 }
+

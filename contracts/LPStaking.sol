@@ -204,7 +204,7 @@ contract LPStaking is Ownable {
         if (user.amount > 0) {
             pending = user.amount.mul(pool.accTokenPerShare).div(1e12).sub(user.rewardDebt);
 
-            uint256 num = block.number - user.lastBlock;
+            uint256 num = getMultiplier(block.number < startBlock ? startBlock : block.number, user.lastBlock);
             user.stakeBlocks = user.stakeBlocks.add(num);
             user.accStakeShares = user.accStakeShares.add(user.amount.mul(num));
         }
